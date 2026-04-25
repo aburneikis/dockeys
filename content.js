@@ -425,6 +425,9 @@ function handleKeyEventNormal(key) {
             goToStartOfWord()
             break
         case "e":
+            goToEndOfWord()
+            sendKeyEvent("right")
+            break
         case "w":
             goToEndOfWord()
             break
