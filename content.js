@@ -185,8 +185,24 @@ function goToStartOfWord() {
     sendKeyEvent("left", wordMods())
 }
 
+function goToDocStart(shift = false) {
+    if (isMac) {
+        sendKeyEvent("up", { meta: true, shift })
+    } else {
+        sendKeyEvent("home", { control: true, shift })
+    }
+}
+
+function goToDocEnd(shift = false) {
+    if (isMac) {
+        sendKeyEvent("down", { meta: true, shift })
+    } else {
+        sendKeyEvent("end", { control: true, shift })
+    }
+}
+
 function goToTop() {
-    sendKeyEvent("home", { control: true, shift: true })
+    goToDocStart(true)
     longStringOp = ""
 }
 
@@ -411,14 +427,17 @@ function handleKeyEventNormal(key) {
             goToStartOfWord()
             break
         case "e":
+            goToEndOfWord()
+            sendKeyEvent("right")
+            break
         case "w":
             goToEndOfWord()
             break
         case "g":
-            sendKeyEvent("home", { control: true })
+            goToDocStart()
             break
         case "G":
-            sendKeyEvent("end", { control: true })
+            goToDocEnd()
             break
         case "c":
         case "d":
@@ -538,10 +557,10 @@ function handleKeyEventVisualLine(key) {
             selectToEndOfLine()
             break
         case "G":
-            sendKeyEvent("end", { control: true, shift: true })
+            goToDocEnd(true)
             break
         case "g":
-            sendKeyEvent("home", { control: true, shift: true })
+            goToDocStart(true)
             break
         case "c":
         case "d":
