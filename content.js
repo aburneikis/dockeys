@@ -323,7 +323,7 @@ function waitForVisualInput(key) {
 }
 
 function handleMutlipleMotion(key) {
-    if (/[0-9]/.test(key)) {
+    if (/[0-9]/.test(key) && multipleMotion.times !== 0) {
         multipleMotion.times = Number(String(multipleMotion.times)+key)
         return
     }
@@ -394,8 +394,7 @@ function eventHandler(e) {
 }
 
 function handleKeyEventNormal(key) {
-
-    if (/[0-9]/.test(key)) {
+    if (/[0-9]/.test(key) && multipleMotion.times !== 0) {
         mode = "multipleMotion"
         multipleMotion.mode = "normal"
         multipleMotion.times = Number(key)
@@ -506,8 +505,7 @@ function handleKeyEventNormal(key) {
 }
 
 function handleKeyEventVisualLine(key) {
-
-    if (/[0-9]/.test(key)) {
+    if (/[0-9]/.test(key) && multipleMotion.times !== 0) {
         mode = "multipleMotion"
         multipleMotion.mode = "visualLine"
         multipleMotion.times = Number(key)

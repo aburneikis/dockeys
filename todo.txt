@@ -1,12 +1,17 @@
 dockeys:
-- add block cursor vs line cursor (div add)?
-- complete deployable relative line numbers (g-line jumping) & marking
-- Shift+J bring line below to current line (down, home, backspace)
-- SHIFT+H, SHIFT+L for up / down tab tree on left?
-- Mac FIX 0 not going to start of line
-- fix #dd (delete multiple lines)
-- <<, >> to tab / shift tab?
-- fix ce, de
-F{char} - line search?
-s (delete and enter insert)
 
+- fix #dd (delete multiple lines)
+
+- fix ce, de
+
+- add deployable relative line numbers (g-line jumping) & marking
+
+- add Shift+J bring line below to current line (down, home, backspace)
+
+- add #yy (yank multiple lines)
+
+- add <<, >> to tab / shift tab?
+
+- add F{char} - line search?
+
+- add s (delete and enter insert)
