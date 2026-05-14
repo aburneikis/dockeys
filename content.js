@@ -297,6 +297,14 @@ function waitForFirstInput(key) {
             selectToEndOfLine()
             runLongStringOp()
             break
+				case "G":
+            goToDocEnd(true)
+            runLongStringOp()
+            break
+        case "g":
+            goToDocStart(true)
+            runLongStringOp()
+            break
         case longStringOp:
             goToStartOfLine()
             selectToEndOfLine()
@@ -490,6 +498,14 @@ function handleKeyEventNormal(key) {
             clickMenu(menuItems.find)
             break
         case "x":
+            sendKeyEvent("delete")
+            break
+				case "s":
+            sendKeyEvent("delete")
+            switchModeToInsert()
+            break
+        case "J":
+            goToEndOfLine()
             sendKeyEvent("delete")
             break
         default:
