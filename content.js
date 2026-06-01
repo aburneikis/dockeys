@@ -108,17 +108,29 @@ function repeatMotion(motion, times, key) {
   }
 }
 
-// Number of page jumps per Ctrl+u / Ctrl+d. Increase to scroll further.
-const pageJumps = 1
+// Fraction of the visible viewport to scroll per Ctrl+u / Ctrl+d. Tune to taste.
+const scrollFraction = 0.5
+
+// The scrollable editor container in Google Docs.
+function getScroller() {
+    return document.querySelector(".kix-appview-editor")
+}
+
+function scrollPage(sign) {
+    const scroller = getScroller()
+    if (!scroller) return
+    scroller.scrollBy({
+        top: sign * scroller.clientHeight * scrollFraction,
+        behavior: "smooth",
+    })
+}
 
 function halfPageDown() {
-    const shift = (mode == 'visual' || mode == 'visualLine')
-    for (let i = 0; i < pageJumps; i++) sendKeyEvent("pagedown", { shift })
+    scrollPage(1)
 }
 
 function halfPageUp() {
-    const shift = (mode == 'visual' || mode == 'visualLine')
-    for (let i = 0; i < pageJumps; i++) sendKeyEvent("pageup", { shift })
+    scrollPage(-1)
 }
 
 function switchModeToVisual() {
