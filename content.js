@@ -35,6 +35,8 @@ const keyCodes = {
     esc: 27,
     end: 35,
     home: 36,
+    pageup: 33,
+    pagedown: 34,
     left: 37,
     up: 38,
     right: 39,
@@ -104,6 +106,19 @@ function repeatMotion(motion, times, key) {
   for (let i = 0; i < times; i++) {
       motion(key)
   }
+}
+
+// Number of page jumps per Ctrl+u / Ctrl+d. Increase to scroll further.
+const pageJumps = 1
+
+function halfPageDown() {
+    const shift = (mode == 'visual' || mode == 'visualLine')
+    for (let i = 0; i < pageJumps; i++) sendKeyEvent("pagedown", { shift })
+}
+
+function halfPageUp() {
+    const shift = (mode == 'visual' || mode == 'visualLine')
+    for (let i = 0; i < pageJumps; i++) sendKeyEvent("pageup", { shift })
 }
 
 function switchModeToVisual() {
@@ -364,6 +379,14 @@ function eventHandler(e) {
 
         // Turn on state variable to indicate temperory normal mode
         tempnormal = true
+        return;
+    }
+    // Ctrl+u / Ctrl+d: half-page up/down when not in insert mode
+    if (e.ctrlKey && mode != 'insert' && (e.key == 'u' || e.key == 'd')) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        if (e.key == 'd') halfPageDown()
+        else halfPageUp()
         return;
     }
     if (e.altKey || e.ctrlKey || e.metaKey) return;
