@@ -108,29 +108,22 @@ function repeatMotion(motion, times, key) {
   }
 }
 
-// Fraction of the visible viewport to scroll per Ctrl+u / Ctrl+d. Tune to taste.
-const scrollFraction = 0.5
+// Number of lines the cursor moves per Ctrl+u / Ctrl+d. Tune to taste.
+const halfPageLines = 15
 
-// The scrollable editor container in Google Docs.
-function getScroller() {
-    return document.querySelector(".kix-appview-editor")
-}
-
-function scrollPage(sign) {
-    const scroller = getScroller()
-    if (!scroller) return
-    scroller.scrollBy({
-        top: sign * scroller.clientHeight * scrollFraction,
-        behavior: "smooth",
-    })
+function movePage(dir) {
+    const shift = (mode == 'visual' || mode == 'visualLine')
+    // Fire the line moves synchronously so it's instant; Docs scrolls the
+    // viewport to follow the cursor.
+    for (let i = 0; i < halfPageLines; i++) sendKeyEvent(dir, { shift })
 }
 
 function halfPageDown() {
-    scrollPage(1)
+    movePage("down")
 }
 
 function halfPageUp() {
-    scrollPage(-1)
+    movePage("up")
 }
 
 function switchModeToVisual() {
