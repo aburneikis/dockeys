@@ -52,7 +52,7 @@ const defaultBlockCursorWidth = 8;
 // measure the exact character. Instead we approximate an average character
 // width from the current font size (the caret's rendered height tracks it),
 // so the block scales sensibly across heading/body text sizes.
-const blockCursorWidthRatio = 0.45;
+const blockCursorWidthRatio = 0.3;
 
 function measureCharWidthAtCaret(caret) {
   const height = caret.getBoundingClientRect().height;
