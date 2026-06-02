@@ -15,6 +15,7 @@ iframe.contentDocument.addEventListener("keydown", eventHandler, true);
 const cursorTop = document.getElementsByClassName("kix-cursor-top")[0]; // element to edit to show normal vs insert mode
 let mode = "normal";
 let tempnormal = false; // State variable for indicating temperory normal mode
+let visualFirstMove = false; // Tracks the first motion after entering charwise visual mode
 let multipleMotion = {
   times: 0,
   mode: "normal",
@@ -154,12 +155,18 @@ function handleZInput(key) {
 
 function switchModeToVisual() {
   mode = "visual";
+  // Selecting the current char anchors the selection at the char's LEFT edge,
+  // which is what we want when the first motion extends to the right. If the
+  // first motion goes left instead, handleKeyEventVisualLine re-anchors to the
+  // char's RIGHT edge so the current char stays selected while extending left.
+  visualFirstMove = true;
   updateModeIndicator(mode);
   sendKeyEvent("right", { shift: true });
 }
 
 function switchModeToVisualLine() {
   mode = "visualLine";
+  visualFirstMove = false;
   updateModeIndicator(mode);
   sendKeyEvent("home");
   sendKeyEvent("down", { shift: true });
@@ -235,6 +242,17 @@ function moveNextWordStart(shift = false) {
   sendKeyEvent("right", wordMods(shift));
   sendKeyEvent("right", wordMods(shift));
   sendKeyEvent("left", wordMods(shift));
+}
+
+// vim `iw` (inner word): select the whole word under the cursor regardless of
+// where inside it the cursor sits. We can only drive native word jumps, so we
+// first normalize the caret to the END of the current word, then to its START,
+// then select forward across the word. Going to the end first makes this robust
+// whether the cursor started at the word's start, middle, or end.
+function selectInnerWord(shift = true) {
+  moveWordEnd();
+  movePrevWordStart();
+  moveWordEnd(shift);
 }
 
 function goToDocStart(shift = false) {
@@ -313,8 +331,9 @@ function waitForSecondInput(key) {
   switch (key) {
     case "w":
     case "W":
-      movePrevWordStart();
-      waitForFirstInput(key);
+      // ciw / diw / yiw: select the whole word, then run the pending operator.
+      selectInnerWord(true);
+      runLongStringOp();
       break;
     case "p":
       goToStartOfPara();
@@ -334,6 +353,16 @@ function waitForFirstInput(key) {
       break;
     case "w":
     case "W":
+      moveWordEnd(true);
+      runLongStringOp();
+      break;
+    case "b":
+    case "B":
+      movePrevWordStart(true);
+      runLongStringOp();
+      break;
+    case "e":
+    case "E":
       moveWordEnd(true);
       runLongStringOp();
       break;
@@ -373,15 +402,24 @@ function waitForVisualInput(key) {
   switch (key) {
     case "w":
     case "W":
-      movePrevWordStart();
-      moveWordEnd(true);
+      // Drop the single-char selection created on entering visual mode, then
+      // select the whole word under the cursor.
+      sendKeyEvent("left");
+      selectInnerWord(true);
       break;
     case "p":
+      sendKeyEvent("left");
       goToStartOfPara();
       goToEndOfPara(true);
       break;
+    default:
+      mode = "visual";
+      return;
   }
-  mode = "visualLine";
+  // After a text-object selection we are in charwise visual mode with a real
+  // selection, so don't let the next motion re-anchor it.
+  visualFirstMove = false;
+  mode = "visual";
 }
 
 function handleMultipleMotion(key) {
@@ -394,8 +432,8 @@ function handleMultipleMotion(key) {
     case "normal":
       repeatMotion(handleKeyEventNormal, multipleMotion.times, key);
       break;
-    case "visualLine":
     case "visual":
+    case "visualLine":
       repeatMotion(handleKeyEventVisualLine, multipleMotion.times, key);
       break;
   }
@@ -597,12 +635,26 @@ function handleKeyEventNormal(key) {
   }
 }
 
+// Charwise visual motions that extend the selection to the left/up. When one of
+// these is the first motion after `v`, we re-anchor the selection to the RIGHT
+// edge of the starting char so the current char stays selected while extending
+// leftward (matching Vim), instead of just collapsing the entry selection.
+const visualBackwardKeys = ["h", "k", "b", "B", "0", "^", "_", "{", "g"];
+
 function handleKeyEventVisualLine(key) {
   if (/[1-9]/.test(key)) {
+    multipleMotion.mode = mode == "visual" ? "visual" : "visualLine";
     mode = "multipleMotion";
-    multipleMotion.mode = "visualLine";
     multipleMotion.times = Number(key);
     return;
+  }
+
+  if (mode == "visual" && visualFirstMove) {
+    visualFirstMove = false;
+    if (visualBackwardKeys.includes(key)) {
+      // Collapse the entry selection to the right edge of the current char.
+      sendKeyEvent("right");
+    }
   }
 
   switch (key) {
