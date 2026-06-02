@@ -36,6 +36,7 @@ const isMac = /Mac/.test(navigator.platform || navigator.userAgent);
 const blockCursorStyle = document.createElement("style");
 blockCursorStyle.textContent = `
   body.dockeys-block-cursor .kix-cursor-caret {
+    border-left-width: var(--dockeys-cursor-width, 8px) !important;
     border-color: rgba(100, 100, 100, 0.4) !important;
   }
 `;
@@ -43,40 +44,26 @@ document.head.appendChild(blockCursorStyle);
 
 let blockCursorEnabled = false;
 
-// Fallback width (px) when we can't measure the character under the cursor
-// (e.g. empty line / end of line).
+// Fallback width (px) when the caret height can't be read.
 const defaultBlockCursorWidth = 8;
 
-// Measure the width of the character immediately to the right of the caret so
-// the block can mirror it for proportional fonts.
+// Block width as a fraction of the caret height. Google Docs renders text to a
+// canvas, so individual glyph widths aren't available in the DOM; we can't
+// measure the exact character. Instead we approximate an average character
+// width from the current font size (the caret's rendered height tracks it),
+// so the block scales sensibly across heading/body text sizes.
+const blockCursorWidthRatio = 0.45;
+
 function measureCharWidthAtCaret(caret) {
-  const rect = caret.getBoundingClientRect();
-  const x = rect.left + 1;
-  const y = rect.top + rect.height / 2;
-  let range = null;
-  if (document.caretRangeFromPoint) {
-    range = document.caretRangeFromPoint(x, y);
-  } else if (document.caretPositionFromPoint) {
-    const pos = document.caretPositionFromPoint(x, y);
-    if (pos) {
-      range = document.createRange();
-      range.setStart(pos.offsetNode, pos.offset);
-    }
-  }
-  if (!range) return defaultBlockCursorWidth;
-  const node = range.startContainer;
-  if (node.nodeType !== Node.TEXT_NODE) return defaultBlockCursorWidth;
-  const offset = range.startOffset;
-  if (offset >= node.length) return defaultBlockCursorWidth;
-  try {
-    const charRange = document.createRange();
-    charRange.setStart(node, offset);
-    charRange.setEnd(node, offset + 1);
-    const w = charRange.getBoundingClientRect().width;
-    return w > 0 ? w : defaultBlockCursorWidth;
-  } catch (e) {
-    return defaultBlockCursorWidth;
-  }
+  const height = caret.getBoundingClientRect().height;
+  if (!height) return defaultBlockCursorWidth;
+  return Math.round(height * blockCursorWidthRatio);
+}
+
+// Schedule a width update after Docs has had a chance to reposition the
+// caret. A single frame is sometimes too early, so wait two.
+function scheduleBlockCursorWidth() {
+  requestAnimationFrame(() => requestAnimationFrame(updateBlockCursorWidth));
 }
 
 function updateBlockCursorWidth() {
@@ -84,7 +71,10 @@ function updateBlockCursorWidth() {
   const caret = document.querySelector(".kix-cursor-caret");
   if (!caret) return;
   const width = measureCharWidthAtCaret(caret);
-  caret.style.setProperty("border-left-width", `${width}px`, "important");
+  // Drive the width via a CSS variable on <body>. Docs recreates the caret
+  // element on each repaint, which would wipe an inline style, but the
+  // stylesheet rule referencing the variable keeps applying.
+  document.body.style.setProperty("--dockeys-cursor-width", `${width}px`);
 }
 
 function setBlockCursor(enabled) {
@@ -92,10 +82,7 @@ function setBlockCursor(enabled) {
   document.body.classList.toggle("dockeys-block-cursor", enabled);
   if (enabled) {
     // Let Docs reposition the caret before measuring.
-    requestAnimationFrame(updateBlockCursorWidth);
-  } else {
-    const caret = document.querySelector(".kix-cursor-caret");
-    if (caret) caret.style.removeProperty("border-left-width");
+    scheduleBlockCursorWidth();
   }
 }
 
@@ -536,7 +523,7 @@ function eventHandler(e) {
         break;
     }
     // Cursor likely moved; re-measure the block width once Docs repaints.
-    requestAnimationFrame(updateBlockCursorWidth);
+    scheduleBlockCursorWidth();
   }
 }
 
@@ -573,7 +560,13 @@ function handleKeyEventNormal(key) {
       break;
     case "e":
     case "E":
+      // The block cursor sits on the char to the right of the caret, so the
+      // caret rests one position left of the word's last char. Step right
+      // first so a press while already at a word end advances to the next
+      // word, then jump to the word end and step back onto its last char.
+      sendKeyEvent("right");
       moveWordEnd();
+      sendKeyEvent("left");
       break;
     case "w":
     case "W":
