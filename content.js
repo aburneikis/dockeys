@@ -212,20 +212,29 @@ function selectToEndOfLine() {
   sendKeyEvent("end", { shift: true });
 }
 
-function selectToStartOfWord() {
-  sendKeyEvent("left", wordMods(true));
+// Word motions. Google Docs' native word jumps behave the same on every
+// platform (just with a different modifier key):
+//   - <wordMod>+Right lands on the END of the current word
+//   - <wordMod>+Left  lands on the START of the current/previous word
+// We synthesize consistent vim-style w/e/b motions on top of those primitives.
+
+// vim `b`: move to the start of the current/previous word.
+function movePrevWordStart(shift = false) {
+  sendKeyEvent("left", wordMods(shift));
 }
 
-function selectToEndOfWord() {
-  sendKeyEvent("right", wordMods(true));
+// vim `e`: move to the end of the current/next word.
+function moveWordEnd(shift = false) {
+  sendKeyEvent("right", wordMods(shift));
 }
 
-function goToEndOfWord() {
-  sendKeyEvent("right", wordMods());
-}
-
-function goToStartOfWord() {
-  sendKeyEvent("left", wordMods());
+// vim `w`: move to the start of the next word.
+// There is no native "start of next word" jump, so synthesize it:
+//   word-end (current) -> word-end (next) -> word-start (back into next word).
+function moveNextWordStart(shift = false) {
+  sendKeyEvent("right", wordMods(shift));
+  sendKeyEvent("right", wordMods(shift));
+  sendKeyEvent("left", wordMods(shift));
 }
 
 function goToDocStart(shift = false) {
@@ -303,7 +312,8 @@ function runLongStringOp(operation = longStringOp) {
 function waitForSecondInput(key) {
   switch (key) {
     case "w":
-      goToStartOfWord();
+    case "W":
+      movePrevWordStart();
       waitForFirstInput(key);
       break;
     case "p":
@@ -323,7 +333,8 @@ function waitForFirstInput(key) {
       switchModeToWait2();
       break;
     case "w":
-      selectToEndOfWord();
+    case "W":
+      moveWordEnd(true);
       runLongStringOp();
       break;
     case "p":
@@ -361,9 +372,9 @@ function waitForFirstInput(key) {
 function waitForVisualInput(key) {
   switch (key) {
     case "w":
-      sendKeyEvent("left", { control: true });
-      goToStartOfWord();
-      selectToEndOfWord();
+    case "W":
+      movePrevWordStart();
+      moveWordEnd(true);
       break;
     case "p":
       goToStartOfPara();
@@ -478,14 +489,16 @@ function handleKeyEventNormal(key) {
       goToStartOfPara();
       break;
     case "b":
-      goToStartOfWord();
+    case "B":
+      movePrevWordStart();
       break;
     case "e":
-      goToEndOfWord();
-      sendKeyEvent("right");
+    case "E":
+      moveWordEnd();
       break;
     case "w":
-      goToEndOfWord();
+    case "W":
+      moveNextWordStart();
       break;
     case "g":
       goToDocStart();
@@ -607,11 +620,16 @@ function handleKeyEventVisualLine(key) {
       goToStartOfPara(true);
       break;
     case "b":
-      selectToStartOfWord();
+    case "B":
+      movePrevWordStart(true);
+      break;
+    case "w":
+    case "W":
+      moveNextWordStart(true);
       break;
     case "e":
-    case "w":
-      selectToEndOfWord();
+    case "E":
+      moveWordEnd(true);
       break;
     case "^":
     case "_":
