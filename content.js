@@ -30,19 +30,73 @@ document.documentElement.appendChild(script);
 const isMac = /Mac/.test(navigator.platform || navigator.userAgent);
 
 // Block cursor for normal/visual mode. Google Docs renders the caret as a
-// thin element (.kix-cursor-caret) with a left border. We widen it and give
-// it a semi-transparent background so it reads as a vim-style block cursor.
+// thin element (.kix-cursor-caret) with a left border. We widen that border
+// into a vim-style block whose width matches the character it sits on, using
+// a neutral semi-transparent color that works over any background.
 const blockCursorStyle = document.createElement("style");
 blockCursorStyle.textContent = `
   body.dockeys-block-cursor .kix-cursor-caret {
-    border-left-width: 0.6em !important;
-    border-color: rgba(26, 115, 232, 0.45) !important;
+    border-color: rgba(100, 100, 100, 0.4) !important;
   }
 `;
 document.head.appendChild(blockCursorStyle);
 
+let blockCursorEnabled = false;
+
+// Fallback width (px) when we can't measure the character under the cursor
+// (e.g. empty line / end of line).
+const defaultBlockCursorWidth = 8;
+
+// Measure the width of the character immediately to the right of the caret so
+// the block can mirror it for proportional fonts.
+function measureCharWidthAtCaret(caret) {
+  const rect = caret.getBoundingClientRect();
+  const x = rect.left + 1;
+  const y = rect.top + rect.height / 2;
+  let range = null;
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(x, y);
+  } else if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(x, y);
+    if (pos) {
+      range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+    }
+  }
+  if (!range) return defaultBlockCursorWidth;
+  const node = range.startContainer;
+  if (node.nodeType !== Node.TEXT_NODE) return defaultBlockCursorWidth;
+  const offset = range.startOffset;
+  if (offset >= node.length) return defaultBlockCursorWidth;
+  try {
+    const charRange = document.createRange();
+    charRange.setStart(node, offset);
+    charRange.setEnd(node, offset + 1);
+    const w = charRange.getBoundingClientRect().width;
+    return w > 0 ? w : defaultBlockCursorWidth;
+  } catch (e) {
+    return defaultBlockCursorWidth;
+  }
+}
+
+function updateBlockCursorWidth() {
+  if (!blockCursorEnabled) return;
+  const caret = document.querySelector(".kix-cursor-caret");
+  if (!caret) return;
+  const width = measureCharWidthAtCaret(caret);
+  caret.style.setProperty("border-left-width", `${width}px`, "important");
+}
+
 function setBlockCursor(enabled) {
+  blockCursorEnabled = enabled;
   document.body.classList.toggle("dockeys-block-cursor", enabled);
+  if (enabled) {
+    // Let Docs reposition the caret before measuring.
+    requestAnimationFrame(updateBlockCursorWidth);
+  } else {
+    const caret = document.querySelector(".kix-cursor-caret");
+    if (caret) caret.style.removeProperty("border-left-width");
+  }
 }
 
 const keyCodes = {
@@ -481,6 +535,8 @@ function eventHandler(e) {
         handleZInput(e.key);
         break;
     }
+    // Cursor likely moved; re-measure the block width once Docs repaints.
+    requestAnimationFrame(updateBlockCursorWidth);
   }
 }
 
