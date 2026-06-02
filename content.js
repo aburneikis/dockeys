@@ -1,24 +1,24 @@
 // Google Docs has moved from using editable HTML elements (textbox with contenteditable=true)
 // to custom implementation with its own editing surface since 2015. (https://drive.googleblog.com/2010/05/whats-different-about-new-google-docs.html)
-// This means that each keystroke is captured and then fed into layout engine which 
+// This means that each keystroke is captured and then fed into layout engine which
 // then draws the text, cursor, selection, headings etc on seperate iframe.
-// Such implementation deters any extensibility in terms of text manipulation because 
+// Such implementation deters any extensibility in terms of text manipulation because
 // there is no API to interact with Google Docs layout engine
 
 // Thus only way (in my understanding) to achieve vim motions would be to capture keystrokes
 // before sending to layout engine and interpret them into respective vim motion/command.
-// Then implement those motions by sending relevant keystrokes. Essentially doing a keystroke to keystroke remapping. 
+// Then implement those motions by sending relevant keystrokes. Essentially doing a keystroke to keystroke remapping.
 
-const iframe = document.getElementsByTagName('iframe')[0]   // https://stackoverflow.com/a/4388829
-iframe.contentDocument.addEventListener('keydown', eventHandler, true)
+const iframe = document.getElementsByTagName("iframe")[0]; // https://stackoverflow.com/a/4388829
+iframe.contentDocument.addEventListener("keydown", eventHandler, true);
 
-const cursorTop = document.getElementsByClassName("kix-cursor-top")[0] // element to edit to show normal vs insert mode
-let mode = 'normal'
-let tempnormal = false // State variable for indicating temperory normal mode
+const cursorTop = document.getElementsByClassName("kix-cursor-top")[0]; // element to edit to show normal vs insert mode
+let mode = "normal";
+let tempnormal = false; // State variable for indicating temperory normal mode
 let multipleMotion = {
-    times:0,
-    mode:"normal"
-}
+  times: 0,
+  mode: "normal",
+};
 
 // How to simulate a keypress in Chrome: http://stackoverflow.com/a/10520017/46237
 // Note that we have to do this keypress simulation in an injected script, because events dispatched
@@ -30,725 +30,730 @@ document.documentElement.appendChild(script);
 const isMac = /Mac/.test(navigator.platform || navigator.userAgent);
 
 const keyCodes = {
-    backspace: 8,
-    enter: 13,
-    esc: 27,
-    end: 35,
-    home: 36,
-    pageup: 33,
-    pagedown: 34,
-    left: 37,
-    up: 38,
-    right: 39,
-    down: 40,
-    "delete": 46,
+  backspace: 8,
+  enter: 13,
+  esc: 27,
+  end: 35,
+  home: 36,
+  pageup: 33,
+  pagedown: 34,
+  left: 37,
+  up: 38,
+  right: 39,
+  down: 40,
+  delete: 46,
 };
 
-const wordModifierKey = isMac ? 'alt' : 'control'
-const paragraphModifierKey = isMac ? 'alt' : 'control'
+const wordModifierKey = isMac ? "alt" : "control";
+const paragraphModifierKey = isMac ? "alt" : "control";
 
 function wordMods(shift = false) {
-    return { shift, [wordModifierKey]: true }
+  return { shift, [wordModifierKey]: true };
 }
 
 function paragraphMods(shift = false) {
-    return { shift, [paragraphModifierKey]: true }
+  return { shift, [paragraphModifierKey]: true };
 }
 
 // Send request to injected page script to simulate keypress
 // Messages are passed to page script via "doc-keys-simulate-keypress" events, which are dispatched
 // on the window object by the content script.
 function sendKeyEvent(key, mods = {}) {
-    const keyCode = keyCodes[key]
-    const defaultMods = { shift: false, control: false, alt: false, meta: false }
-    window.dispatchEvent(new CustomEvent("doc-keys-simulate-keypress", { detail: { keyCode, mods: { ...defaultMods, ...mods } } }));
+  const keyCode = keyCodes[key];
+  const defaultMods = { shift: false, control: false, alt: false, meta: false };
+  window.dispatchEvent(
+    new CustomEvent("doc-keys-simulate-keypress", {
+      detail: { keyCode, mods: { ...defaultMods, ...mods } },
+    }),
+  );
 }
 
 //Mode indicator thing (insert, visualline)
-const modeIndicator = document.createElement('div')
-modeIndicator.style.position = 'fixed'
-modeIndicator.style.bottom = '20px'
-modeIndicator.style.right = '20px'
-modeIndicator.style.padding = '8px 16px'
-modeIndicator.style.borderRadius = '4px'
-modeIndicator.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-modeIndicator.style.fontSize = '14px'
-modeIndicator.style.fontWeight = '500'
-modeIndicator.style.zIndex = '9999'
-document.body.appendChild(modeIndicator)
+const modeIndicator = document.createElement("div");
+modeIndicator.style.position = "fixed";
+modeIndicator.style.bottom = "20px";
+modeIndicator.style.right = "20px";
+modeIndicator.style.padding = "8px 16px";
+modeIndicator.style.borderRadius = "4px";
+modeIndicator.style.fontFamily =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+modeIndicator.style.fontSize = "14px";
+modeIndicator.style.fontWeight = "500";
+modeIndicator.style.zIndex = "9999";
+document.body.appendChild(modeIndicator);
 
 function updateModeIndicator(currentMode) {
-    modeIndicator.textContent = currentMode.toUpperCase()
-    switch(currentMode) {
-        case 'normal':
-            modeIndicator.style.backgroundColor = '#1a73e8'
-            modeIndicator.style.color = 'white'
-            break
-        case 'insert':
-            modeIndicator.style.backgroundColor = '#34a853'
-            modeIndicator.style.color = 'white'
-            break
-        case 'visual':
-        case 'visualLine':
-            modeIndicator.style.backgroundColor = '#fbbc04'
-            modeIndicator.style.color = 'black'
-            break
-        case 'waitForFirstInput':
-        case 'waitForSecondInput':
-        case 'waitForVisualInput':
-            modeIndicator.style.backgroundColor = '#ea4335'
-            modeIndicator.style.color = 'white'
-            break
-    }
+  modeIndicator.textContent = currentMode.toUpperCase();
+  switch (currentMode) {
+    case "normal":
+      modeIndicator.style.backgroundColor = "#1a73e8";
+      modeIndicator.style.color = "white";
+      break;
+    case "insert":
+      modeIndicator.style.backgroundColor = "#34a853";
+      modeIndicator.style.color = "white";
+      break;
+    case "visual":
+    case "visualLine":
+      modeIndicator.style.backgroundColor = "#fbbc04";
+      modeIndicator.style.color = "black";
+      break;
+    case "waitForFirstInput":
+    case "waitForSecondInput":
+    case "waitForVisualInput":
+      modeIndicator.style.backgroundColor = "#ea4335";
+      modeIndicator.style.color = "white";
+      break;
+  }
 }
 
 function repeatMotion(motion, times, key) {
   for (let i = 0; i < times; i++) {
-      motion(key)
+    motion(key);
   }
 }
 
 // Number of lines the cursor moves per Ctrl+u / Ctrl+d. Tune to taste.
-const halfPageLines = 15
+const halfPageLines = 15;
 
 function movePage(dir) {
-    const shift = (mode == 'visual' || mode == 'visualLine')
-    // Fire the line moves synchronously so it's instant; Docs scrolls the
-    // viewport to follow the cursor.
-    for (let i = 0; i < halfPageLines; i++) sendKeyEvent(dir, { shift })
+  const shift = mode == "visual" || mode == "visualLine";
+  // Fire the line moves synchronously so it's instant; Docs scrolls the
+  // viewport to follow the cursor.
+  for (let i = 0; i < halfPageLines; i++) sendKeyEvent(dir, { shift });
 }
 
 function halfPageDown() {
-    movePage("down")
+  movePage("down");
 }
 
 function halfPageUp() {
-    movePage("up")
+  movePage("up");
 }
 
-// Center the viewport on the current cursor position (Vim's zz).
+// Where the cursor lands vertically after zz, as a fraction down the
+// viewport (0 = top, 0.5 = center). Slightly above center reads nicer.
+const zzCursorPosition = 0.2;
+
+// Position the viewport so the cursor sits at zzCursorPosition (Vim's zz).
 function centerOnCursor() {
-    const scroller = document.querySelector(".kix-appview-editor")
-    const cursor = document.querySelector(".kix-cursor")
-    if (!scroller || !cursor) return
-    const cursorRect = cursor.getBoundingClientRect()
-    const scrollerRect = scroller.getBoundingClientRect()
-    const cursorCenter = cursorRect.top + cursorRect.height / 2
-    const viewportCenter = scrollerRect.top + scroller.clientHeight / 2
-    scroller.scrollBy({ top: cursorCenter - viewportCenter, behavior: "smooth" })
+  const scroller = document.querySelector(".kix-appview-editor");
+  const cursor = document.querySelector(".kix-cursor");
+  if (!scroller || !cursor) return;
+  const cursorRect = cursor.getBoundingClientRect();
+  const scrollerRect = scroller.getBoundingClientRect();
+  const cursorCenter = cursorRect.top + cursorRect.height / 2;
+  const targetY = scrollerRect.top + scroller.clientHeight * zzCursorPosition;
+  scroller.scrollBy({ top: cursorCenter - targetY, behavior: "smooth" });
 }
 
 function handleZInput(key) {
-    if (key == "z") centerOnCursor()
-    mode = "normal"
+  if (key == "z") centerOnCursor();
+  mode = "normal";
 }
 
 function switchModeToVisual() {
-    mode = 'visual'
-    updateModeIndicator(mode)
-    sendKeyEvent('right', { shift: true })
+  mode = "visual";
+  updateModeIndicator(mode);
+  sendKeyEvent("right", { shift: true });
 }
 
 function switchModeToVisualLine() {
-    mode = 'visualLine'
-    updateModeIndicator(mode)
-    sendKeyEvent('home')
-    sendKeyEvent('down', { shift: true })
+  mode = "visualLine";
+  updateModeIndicator(mode);
+  sendKeyEvent("home");
+  sendKeyEvent("down", { shift: true });
 }
 
 function switchModeToNormal() {
-    if (mode == "visualLine" || mode == "waitForFirstInput") sendKeyEvent("left")
-    mode = 'normal'
-    updateModeIndicator(mode)
+  if (mode == "visualLine" || mode == "waitForFirstInput") sendKeyEvent("left");
+  mode = "normal";
+  updateModeIndicator(mode);
 
-    //caret indicating visual mode 
-    cursorTop.style.opacity = 1
-    cursorTop.style.display = "block"
-    cursorTop.style.backgroundColor = "black"
+  //caret indicating visual mode
+  cursorTop.style.opacity = 1;
+  cursorTop.style.display = "block";
+  cursorTop.style.backgroundColor = "black";
 }
 
 function switchModeToInsert() {
-    mode = 'insert'
-    updateModeIndicator(mode)
-    cursorTop.style.opacity = 0
+  mode = "insert";
+  updateModeIndicator(mode);
+  cursorTop.style.opacity = 0;
 }
 
 function switchModeToWait() {
-    mode = "waitForFirstInput"
-    updateModeIndicator(mode)
-    // define cursor style
+  mode = "waitForFirstInput";
+  updateModeIndicator(mode);
+  // define cursor style
 }
 
 function switchModeToWait2() {
-    mode = "waitForSecondInput"
-    updateModeIndicator(mode)
-    // define cursor style
+  mode = "waitForSecondInput";
+  updateModeIndicator(mode);
+  // define cursor style
 }
 
-let longStringOp = ""
-
+let longStringOp = "";
 
 function goToStartOfLine() {
-    sendKeyEvent("home")
+  sendKeyEvent("home");
 }
 
 function goToEndOfLine() {
-    sendKeyEvent("end")
+  sendKeyEvent("end");
 }
 
 function selectToStartOfLine() {
-    sendKeyEvent("home", { shift: true })
+  sendKeyEvent("home", { shift: true });
 }
 
 function selectToEndOfLine() {
-    sendKeyEvent("end", { shift: true })
+  sendKeyEvent("end", { shift: true });
 }
 
 function selectToStartOfWord() {
-    sendKeyEvent("left", wordMods(true))
+  sendKeyEvent("left", wordMods(true));
 }
 
 function selectToEndOfWord() {
-    sendKeyEvent("right", wordMods(true))
+  sendKeyEvent("right", wordMods(true));
 }
 
 function goToEndOfWord() {
-    sendKeyEvent("right", wordMods())
+  sendKeyEvent("right", wordMods());
 }
 
 function goToStartOfWord() {
-    sendKeyEvent("left", wordMods())
+  sendKeyEvent("left", wordMods());
 }
 
 function goToDocStart(shift = false) {
-    if (isMac) {
-        sendKeyEvent("up", { meta: true, shift })
-    } else {
-        sendKeyEvent("home", { control: true, shift })
-    }
+  if (isMac) {
+    sendKeyEvent("up", { meta: true, shift });
+  } else {
+    sendKeyEvent("home", { control: true, shift });
+  }
 }
 
 function goToDocEnd(shift = false) {
-    if (isMac) {
-        sendKeyEvent("down", { meta: true, shift })
-    } else {
-        sendKeyEvent("end", { control: true, shift })
-    }
+  if (isMac) {
+    sendKeyEvent("down", { meta: true, shift });
+  } else {
+    sendKeyEvent("end", { control: true, shift });
+  }
 }
 
 function goToTop() {
-    goToDocStart(true)
-    longStringOp = ""
+  goToDocStart(true);
+  longStringOp = "";
 }
 
 function selectToEndOfPara() {
-    sendKeyEvent("down", paragraphMods(true))
+  sendKeyEvent("down", paragraphMods(true));
 }
 function goToEndOfPara(shift = false) {
-    sendKeyEvent("down", paragraphMods(shift))
-    sendKeyEvent("right", { shift })
+  sendKeyEvent("down", paragraphMods(shift));
+  sendKeyEvent("right", { shift });
 }
 function goToStartOfPara(shift = false) {
-    sendKeyEvent("up", paragraphMods(shift))
+  sendKeyEvent("up", paragraphMods(shift));
 }
-
 
 function addLineTop() {
-    goToStartOfLine()
-    sendKeyEvent("enter", { shift: true })
-    sendKeyEvent("up")
-    switchModeToInsert()
+  goToStartOfLine();
+  sendKeyEvent("enter", { shift: true });
+  sendKeyEvent("up");
+  switchModeToInsert();
 }
 function addLineBottom() {
-    goToEndOfLine()
-    sendKeyEvent("enter", { shift: true })
-    switchModeToInsert()
+  goToEndOfLine();
+  sendKeyEvent("enter", { shift: true });
+  switchModeToInsert();
 }
 
 function runLongStringOp(operation = longStringOp) {
-    switch (operation) {
-        case "c":
-            clickMenu(menuItems.cut)
-            switchModeToInsert()
-            break
-        case "d":
-            clickMenu(menuItems.cut)
-            sendKeyEvent('backspace')
-            mode = 'normal'
-            switchModeToNormal()
-            break
-        case "y":
-            clickMenu(menuItems.copy)
-            switchModeToNormal()
-            break
-        case "p":
-            clickMenu(menuItems.paste)
-            switchModeToNormal()
-            break
-        case "v":
-            break
-        case "g":
-            goToTop()
-            break
-    }
+  switch (operation) {
+    case "c":
+      clickMenu(menuItems.cut);
+      switchModeToInsert();
+      break;
+    case "d":
+      clickMenu(menuItems.cut);
+      sendKeyEvent("backspace");
+      mode = "normal";
+      switchModeToNormal();
+      break;
+    case "y":
+      clickMenu(menuItems.copy);
+      switchModeToNormal();
+      break;
+    case "p":
+      clickMenu(menuItems.paste);
+      switchModeToNormal();
+      break;
+    case "v":
+      break;
+    case "g":
+      goToTop();
+      break;
+  }
 }
 
-
 function waitForSecondInput(key) {
-    switch (key) {
-        case "w":
-            goToStartOfWord()
-            waitForFirstInput(key)
-            break
-        case "p":
-            goToStartOfPara()
-            waitForFirstInput(key)
-            break
-        default:
-            switchModeToNormal()
-            break
-    }
+  switch (key) {
+    case "w":
+      goToStartOfWord();
+      waitForFirstInput(key);
+      break;
+    case "p":
+      goToStartOfPara();
+      waitForFirstInput(key);
+      break;
+    default:
+      switchModeToNormal();
+      break;
+  }
 }
 
 function waitForFirstInput(key) {
-    switch (key) {
-        case "i":
-        case "a":
-            switchModeToWait2()
-            break
-        case "w":
-            selectToEndOfWord()
-            runLongStringOp()
-            break
-        case "p":
-            selectToEndOfPara()
-            runLongStringOp()
-            break
-        case "^":
-        case "_":
-        case "0":
-            selectToStartOfLine()
-            runLongStringOp()
-            break
-        case "$":
-            selectToEndOfLine()
-            runLongStringOp()
-            break
-				case "G":
-            goToDocEnd(true)
-            runLongStringOp()
-            break
-        case "g":
-            goToDocStart(true)
-            runLongStringOp()
-            break
-        case longStringOp:
-            goToStartOfLine()
-            selectToEndOfLine()
-            runLongStringOp()
-            break
-        default:
-            switchModeToNormal()
-    }
+  switch (key) {
+    case "i":
+    case "a":
+      switchModeToWait2();
+      break;
+    case "w":
+      selectToEndOfWord();
+      runLongStringOp();
+      break;
+    case "p":
+      selectToEndOfPara();
+      runLongStringOp();
+      break;
+    case "^":
+    case "_":
+    case "0":
+      selectToStartOfLine();
+      runLongStringOp();
+      break;
+    case "$":
+      selectToEndOfLine();
+      runLongStringOp();
+      break;
+    case "G":
+      goToDocEnd(true);
+      runLongStringOp();
+      break;
+    case "g":
+      goToDocStart(true);
+      runLongStringOp();
+      break;
+    case longStringOp:
+      goToStartOfLine();
+      selectToEndOfLine();
+      runLongStringOp();
+      break;
+    default:
+      switchModeToNormal();
+  }
 }
 
 function waitForVisualInput(key) {
-    switch (key) {
-        case "w":
-            sendKeyEvent("left",{control:true})
-            goToStartOfWord()
-            selectToEndOfWord()
-            break
-        case "p":
-            goToStartOfPara()
-            goToEndOfPara(true)
-            break
-    }
-    mode = "visualLine"
+  switch (key) {
+    case "w":
+      sendKeyEvent("left", { control: true });
+      goToStartOfWord();
+      selectToEndOfWord();
+      break;
+    case "p":
+      goToStartOfPara();
+      goToEndOfPara(true);
+      break;
+  }
+  mode = "visualLine";
 }
 
 function handleMultipleMotion(key) {
-    if (/[0-9]/.test(key)) {
-        multipleMotion.times = Number(String(multipleMotion.times)+key)
-        return
-    }
+  if (/[0-9]/.test(key)) {
+    multipleMotion.times = Number(String(multipleMotion.times) + key);
+    return;
+  }
 
-    switch (multipleMotion.mode) {
-        case "normal":
-            repeatMotion(handleKeyEventNormal,multipleMotion.times,key)
-            break
-        case "visualLine":
-        case "visual":
-            repeatMotion(handleKeyEventVisualLine,multipleMotion.times,key)
-            break
-    }
+  switch (multipleMotion.mode) {
+    case "normal":
+      repeatMotion(handleKeyEventNormal, multipleMotion.times, key);
+      break;
+    case "visualLine":
+    case "visual":
+      repeatMotion(handleKeyEventVisualLine, multipleMotion.times, key);
+      break;
+  }
 
-    mode = multipleMotion.mode
+  mode = multipleMotion.mode;
 }
 
-
-
 function eventHandler(e) {
-    if (
-        ["Shift","Meta","Control","Alt",""].includes(e.key)
-    ) return
-        
-    
-    if (e.ctrlKey && mode=='insert' && e.key=='o' ){
-        e.preventDefault()
-        e.stopImmediatePropagation()
-        switchModeToNormal()
+  if (["Shift", "Meta", "Control", "Alt", ""].includes(e.key)) return;
 
-        // Turn on state variable to indicate temperory normal mode
-        tempnormal = true
-        return;
+  if (e.ctrlKey && mode == "insert" && e.key == "o") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    switchModeToNormal();
+
+    // Turn on state variable to indicate temperory normal mode
+    tempnormal = true;
+    return;
+  }
+  // Ctrl+u / Ctrl+d: half-page up/down when not in insert mode
+  if (e.ctrlKey && mode != "insert" && (e.key == "u" || e.key == "d")) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.key == "d") halfPageDown();
+    else halfPageUp();
+    return;
+  }
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key == "Escape") {
+    e.preventDefault();
+    if (mode == "visualLine" || mode == "visual") {
+      sendKeyEvent("right");
     }
-    // Ctrl+u / Ctrl+d: half-page up/down when not in insert mode
-    if (e.ctrlKey && mode != 'insert' && (e.key == 'u' || e.key == 'd')) {
-        e.preventDefault()
-        e.stopImmediatePropagation()
-        if (e.key == 'd') halfPageDown()
-        else halfPageUp()
-        return;
+    switchModeToNormal();
+    return;
+  }
+  if (mode != "insert") {
+    e.preventDefault();
+    switch (mode) {
+      case "normal":
+        handleKeyEventNormal(e.key);
+        break;
+      case "visual":
+      case "visualLine":
+        handleKeyEventVisualLine(e.key);
+        break;
+      case "waitForFirstInput":
+        waitForFirstInput(e.key);
+        break;
+      case "waitForSecondInput":
+        waitForSecondInput(e.key);
+        break;
+      case "waitForVisualInput":
+        waitForVisualInput(e.key);
+        break;
+      case "multipleMotion":
+        handleMultipleMotion(e.key);
+        break;
+      case "waitForZ":
+        handleZInput(e.key);
+        break;
     }
-    if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key == 'Escape') {
-        e.preventDefault()
-        if (mode == 'visualLine' || mode == 'visual') {
-            sendKeyEvent("right")
-        }
-        switchModeToNormal()
-        return;
-    }
-    if (mode != 'insert') {
-        e.preventDefault()
-        switch (mode) {
-            case "normal":
-                handleKeyEventNormal(e.key)
-                break
-            case "visual":
-            case "visualLine":
-                handleKeyEventVisualLine(e.key)
-                break
-            case "waitForFirstInput":
-                waitForFirstInput(e.key)
-                break
-            case "waitForSecondInput":
-                waitForSecondInput(e.key)
-                break
-            case "waitForVisualInput":
-                waitForVisualInput(e.key)
-                break
-            case "multipleMotion":
-                handleMultipleMotion(e.key)
-                break
-            case "waitForZ":
-                handleZInput(e.key)
-                break
-        }
-    }
+  }
 }
 
 function handleKeyEventNormal(key) {
-    if (/[1-9]/.test(key)) {
-        mode = "multipleMotion"
-        multipleMotion.mode = "normal"
-        multipleMotion.times = Number(key)
-        return
+  if (/[1-9]/.test(key)) {
+    mode = "multipleMotion";
+    multipleMotion.mode = "normal";
+    multipleMotion.times = Number(key);
+    return;
+  }
+
+  switch (key) {
+    case "h":
+      sendKeyEvent("left");
+      break;
+    case "j":
+      sendKeyEvent("down");
+      break;
+    case "k":
+      sendKeyEvent("up");
+      break;
+    case "l":
+      sendKeyEvent("right");
+      break;
+    case "}":
+      goToEndOfPara();
+      break;
+    case "{":
+      goToStartOfPara();
+      break;
+    case "b":
+      goToStartOfWord();
+      break;
+    case "e":
+      goToEndOfWord();
+      sendKeyEvent("right");
+      break;
+    case "w":
+      goToEndOfWord();
+      break;
+    case "g":
+      goToDocStart();
+      break;
+    case "G":
+      goToDocEnd();
+      break;
+    case "c":
+    case "d":
+    case "y":
+      longStringOp = key;
+      mode = "waitForFirstInput";
+      break;
+    case "p":
+      clickMenu(menuItems.paste);
+      break;
+    case "a":
+      sendKeyEvent("right");
+      switchModeToInsert();
+      break;
+    case "i":
+      switchModeToInsert();
+      break;
+    case "^":
+    case "_":
+    case "0":
+      goToStartOfLine();
+      break;
+    case "$":
+      goToEndOfLine();
+      break;
+    case "I":
+      goToStartOfLine();
+      switchModeToInsert();
+      break;
+    case "A":
+      goToEndOfLine();
+      switchModeToInsert();
+      break;
+    case "v":
+      switchModeToVisual();
+      break;
+    case "V":
+      switchModeToVisualLine();
+      break;
+    case "o":
+      addLineBottom();
+      break;
+    case "O":
+      addLineTop();
+      break;
+    case "z":
+      mode = "waitForZ";
+      return;
+    case "u":
+      clickMenu(menuItems.undo);
+      break;
+    case "r":
+      clickMenu(menuItems.redo);
+      break;
+    case "/":
+      clickMenu(menuItems.find);
+      break;
+    case "x":
+      sendKeyEvent("delete");
+      break;
+    case "s":
+      sendKeyEvent("delete");
+      switchModeToInsert();
+      break;
+    case "J":
+      goToEndOfLine();
+      sendKeyEvent("delete");
+      break;
+    default:
+      return;
+  }
+  // Check if operation is occuring in temperory normal mode after ctrl-o
+  if (tempnormal) {
+    tempnormal = false;
+    if (mode != "visual" && mode != "visualLine") {
+      // Switch back to insert
+      switchModeToInsert(); // after operation
     }
-    
-    switch (key) {
-        case "h":
-            sendKeyEvent("left")
-            break
-        case "j":
-            sendKeyEvent("down")
-            break
-        case "k":
-            sendKeyEvent("up")
-            break
-        case "l":
-            sendKeyEvent("right")
-            break
-        case "}":
-            goToEndOfPara()
-            break
-        case "{":
-            goToStartOfPara()
-            break
-        case "b":
-            goToStartOfWord()
-            break
-        case "e":
-            goToEndOfWord()
-            sendKeyEvent("right")
-            break
-        case "w":
-            goToEndOfWord()
-            break
-        case "g":
-            goToDocStart()
-            break
-        case "G":
-            goToDocEnd()
-            break
-        case "c":
-        case "d":
-        case "y":
-            longStringOp = key
-            mode = "waitForFirstInput"
-            break
-        case "p":
-            clickMenu(menuItems.paste)
-            break
-        case "a":
-            sendKeyEvent("right")
-            switchModeToInsert()
-            break
-        case "i":
-            switchModeToInsert()
-            break
-        case "^":
-        case "_":
-        case "0":
-            goToStartOfLine()
-            break
-        case "$":
-            goToEndOfLine()
-            break
-        case "I":
-            goToStartOfLine()
-            switchModeToInsert()
-            break
-        case "A":
-            goToEndOfLine()
-            switchModeToInsert()
-            break
-        case "v":
-            switchModeToVisual()
-            break
-        case "V":
-            switchModeToVisualLine()
-            break
-        case "o":
-            addLineBottom()
-            break
-        case "O":
-            addLineTop()
-            break
-        case "z":
-            mode = "waitForZ"
-            return
-        case "u":
-            clickMenu(menuItems.undo)
-            break
-        case "r":
-            clickMenu(menuItems.redo)
-            break
-        case "/":
-            clickMenu(menuItems.find)
-            break
-        case "x":
-            sendKeyEvent("delete")
-            break
-				case "s":
-            sendKeyEvent("delete")
-            switchModeToInsert()
-            break
-        case "J":
-            goToEndOfLine()
-            sendKeyEvent("delete")
-            break
-        default:
-            return;
-    }
-    // Check if operation is occuring in temperory normal mode after ctrl-o
-    if (tempnormal) {
-        tempnormal = false
-        if (mode != 'visual' && mode != 'visualLine'){  // Switch back to insert 
-            switchModeToInsert()                        // after operation
-            }
-    }
+  }
 }
 
 function handleKeyEventVisualLine(key) {
-    if (/[1-9]/.test(key)) {
-        mode = "multipleMotion"
-        multipleMotion.mode = "visualLine"
-        multipleMotion.times = Number(key)
-        return
-    }
+  if (/[1-9]/.test(key)) {
+    mode = "multipleMotion";
+    multipleMotion.mode = "visualLine";
+    multipleMotion.times = Number(key);
+    return;
+  }
 
-    switch (key) {
-        case "":
-            break
-        case "h":
-            sendKeyEvent("left", { shift: true })
-            break
-        case "j":
-            sendKeyEvent("down", { shift: true })
-            break
-        case "k":
-            sendKeyEvent("up", { shift: true })
-            break
-        case "l":
-            sendKeyEvent("right", { shift: true })
-            break
-        case "p":
-            clickMenu(menuItems.paste)
-            switchModeToNormal()
-            break
-        case "}":
-            goToEndOfPara(true)
-            break
-        case "{":
-            goToStartOfPara(true)
-            break
-        case "b":
-            selectToStartOfWord()
-            break
-        case "e":
-        case "w":
-            selectToEndOfWord()
-            break
-        case "^":
-        case "_":
-        case "0":
-            selectToStartOfLine()
-            break
-        case "$":
-            selectToEndOfLine()
-            break
-        case "G":
-            goToDocEnd(true)
-            break
-        case "g":
-            goToDocStart(true)
-            break
-        case "c":
-        case "d":
-        case "y":
-            runLongStringOp(key)
-            break
-        case "i":
-        case "a":
-            mode = "waitForVisualInput"
-            break
-
-
-    }
+  switch (key) {
+    case "":
+      break;
+    case "h":
+      sendKeyEvent("left", { shift: true });
+      break;
+    case "j":
+      sendKeyEvent("down", { shift: true });
+      break;
+    case "k":
+      sendKeyEvent("up", { shift: true });
+      break;
+    case "l":
+      sendKeyEvent("right", { shift: true });
+      break;
+    case "p":
+      clickMenu(menuItems.paste);
+      switchModeToNormal();
+      break;
+    case "}":
+      goToEndOfPara(true);
+      break;
+    case "{":
+      goToStartOfPara(true);
+      break;
+    case "b":
+      selectToStartOfWord();
+      break;
+    case "e":
+    case "w":
+      selectToEndOfWord();
+      break;
+    case "^":
+    case "_":
+    case "0":
+      selectToStartOfLine();
+      break;
+    case "$":
+      selectToEndOfLine();
+      break;
+    case "G":
+      goToDocEnd(true);
+      break;
+    case "g":
+      goToDocStart(true);
+      break;
+    case "c":
+    case "d":
+    case "y":
+      runLongStringOp(key);
+      break;
+    case "i":
+    case "a":
+      mode = "waitForVisualInput";
+      break;
+  }
 }
 
-let menuItemElements = {}
+let menuItemElements = {};
 
 let menuItems = {
-    copy: { parent: "Edit", caption: "Copy" },
-    cut: { parent: "Edit", caption: "Cut" },
-    paste: { parent: "Edit", caption: "Paste" },
-    redo: { parent: "Edit", caption: "Redo" },
-    undo: { parent: "Edit", caption: "Undo" },
-    find: { parent: "Edit", caption: "Find" },
-}
+  copy: { parent: "Edit", caption: "Copy" },
+  cut: { parent: "Edit", caption: "Cut" },
+  paste: { parent: "Edit", caption: "Paste" },
+  redo: { parent: "Edit", caption: "Redo" },
+  undo: { parent: "Edit", caption: "Undo" },
+  find: { parent: "Edit", caption: "Find" },
+};
 
 function clickMenu(itemCaption) {
-    simulateClick(getMenuItem(itemCaption));
+  simulateClick(getMenuItem(itemCaption));
 }
 
 function clickToolbarButton(captionList) {
-    // Sometimes a toolbar button won't exist in the DOM until its parent has been clicked, so we
-    // click all of its parents in sequence.
-    for (const caption of Array.from(captionList)) {
-        const els = document.querySelectorAll(`*[aria-label='${caption}']`);
-        if (els.length == 0) {
-            console.log(`Couldn't find the element for the button labeled ${caption}.`);
-            console.log(captionList);
-            return;
-        }
-        // Sometimes there are multiple elements that have the same label. When that happens, it's
-        // ambiguous which one to click, so we log it so it's easier to debug.
-        if (els.length > 1) {
-            console.log(
-                `Warning: there are multiple buttons with the caption ${caption}. ` +
-                "We're expecting only 1.",
-            );
-            console.log(captionList);
-        }
-        simulateClick(els[0]);
+  // Sometimes a toolbar button won't exist in the DOM until its parent has been clicked, so we
+  // click all of its parents in sequence.
+  for (const caption of Array.from(captionList)) {
+    const els = document.querySelectorAll(`*[aria-label='${caption}']`);
+    if (els.length == 0) {
+      console.log(
+        `Couldn't find the element for the button labeled ${caption}.`,
+      );
+      console.log(captionList);
+      return;
     }
+    // Sometimes there are multiple elements that have the same label. When that happens, it's
+    // ambiguous which one to click, so we log it so it's easier to debug.
+    if (els.length > 1) {
+      console.log(
+        `Warning: there are multiple buttons with the caption ${caption}. ` +
+          "We're expecting only 1.",
+      );
+      console.log(captionList);
+    }
+    simulateClick(els[0]);
+  }
 }
 // Returns the DOM element of the menu item with the given caption. Prints a warning if a menu
 // item isn't found (since this is a common source of errors in SheetKeys) unless silenceWarning
 // is true.
 
 function getMenuItem(menuItem, silenceWarning = false) {
-    const caption = menuItem.caption;
-    let el = menuItemElements[caption];
-    if (el) return el;
-    el = findMenuItem(menuItem);
-    if (!el) {
-        if (!silenceWarning) console.error("Could not find menu item with caption", menuItem.caption);
-        return null;
-    }
-    return menuItemElements[caption] = el;
+  const caption = menuItem.caption;
+  let el = menuItemElements[caption];
+  if (el) return el;
+  el = findMenuItem(menuItem);
+  if (!el) {
+    if (!silenceWarning)
+      console.error("Could not find menu item with caption", menuItem.caption);
+    return null;
+  }
+  return (menuItemElements[caption] = el);
 }
 
 function findMenuItem(menuItem) {
-    activateTopLevelMenu(menuItem.parent);
-    const menuItemEls = document.querySelectorAll(".goog-menuitem");
-    const caption = menuItem.caption;
-    const isRegexp = caption instanceof RegExp;
-    for (const el of Array.from(menuItemEls)) {
-        const label = el.innerText;
-        if (!label) continue;
-        if (isRegexp) {
-            if (caption.test(label)) {
-                return el;
-            }
-        } else {
-            if (label.startsWith(caption)) {
-                return el;
-            }
-        }
+  activateTopLevelMenu(menuItem.parent);
+  const menuItemEls = document.querySelectorAll(".goog-menuitem");
+  const caption = menuItem.caption;
+  const isRegexp = caption instanceof RegExp;
+  for (const el of Array.from(menuItemEls)) {
+    const label = el.innerText;
+    if (!label) continue;
+    if (isRegexp) {
+      if (caption.test(label)) {
+        return el;
+      }
+    } else {
+      if (label.startsWith(caption)) {
+        return el;
+      }
     }
-    return null;
+  }
+  return null;
 }
 
 function simulateClick(el, x = 0, y = 0) {
-    const eventSequence = ["mouseover", "mousedown", "mouseup", "click"];
-    for (const eventName of eventSequence) {
-        const event = document.createEvent("MouseEvents");
-        event.initMouseEvent(
-            eventName,
-            true, // bubbles
-            true, // cancelable
-            window, //view
-            1, // event-detail
-            x, // screenX
-            y, // screenY
-            x, // clientX
-            y, // clientY
-            false, // ctrl
-            false, // alt
-            false, // shift
-            false, // meta
-            0, // button
-            null, // relatedTarget
-        );
-        el.dispatchEvent(event);
-    }
+  const eventSequence = ["mouseover", "mousedown", "mouseup", "click"];
+  for (const eventName of eventSequence) {
+    const event = document.createEvent("MouseEvents");
+    event.initMouseEvent(
+      eventName,
+      true, // bubbles
+      true, // cancelable
+      window, //view
+      1, // event-detail
+      x, // screenX
+      y, // screenY
+      x, // clientX
+      y, // clientY
+      false, // ctrl
+      false, // alt
+      false, // shift
+      false, // meta
+      0, // button
+      null, // relatedTarget
+    );
+    el.dispatchEvent(event);
+  }
 }
 
 function activateTopLevelMenu(menuCaption) {
-    const buttons = Array.from(document.querySelectorAll(".menu-button"));
-    const button = buttons.find((el) => el.innerText.trim() == menuCaption);
-    if (!button) {
-        throw new Error(`Couldn't find top-level button with caption ${menuCaption}`);
-    }
-    // Unlike submenus, top-level menus can be hidden by clicking the button a second time to
-    // dismiss the menu.
-    simulateClick(button);
-    simulateClick(button);
+  const buttons = Array.from(document.querySelectorAll(".menu-button"));
+  const button = buttons.find((el) => el.innerText.trim() == menuCaption);
+  if (!button) {
+    throw new Error(
+      `Couldn't find top-level button with caption ${menuCaption}`,
+    );
+  }
+  // Unlike submenus, top-level menus can be hidden by clicking the button a second time to
+  // dismiss the menu.
+  simulateClick(button);
+  simulateClick(button);
 }
 
 // Initiate to Normal Mode
-switchModeToNormal()
+switchModeToNormal();
