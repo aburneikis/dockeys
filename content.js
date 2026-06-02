@@ -29,6 +29,22 @@ document.documentElement.appendChild(script);
 
 const isMac = /Mac/.test(navigator.platform || navigator.userAgent);
 
+// Block cursor for normal/visual mode. Google Docs renders the caret as a
+// thin element (.kix-cursor-caret) with a left border. We widen it and give
+// it a semi-transparent background so it reads as a vim-style block cursor.
+const blockCursorStyle = document.createElement("style");
+blockCursorStyle.textContent = `
+  body.dockeys-block-cursor .kix-cursor-caret {
+    border-left-width: 0.6em !important;
+    border-color: rgba(26, 115, 232, 0.45) !important;
+  }
+`;
+document.head.appendChild(blockCursorStyle);
+
+function setBlockCursor(enabled) {
+  document.body.classList.toggle("dockeys-block-cursor", enabled);
+}
+
 const keyCodes = {
   backspace: 8,
   enter: 13,
@@ -174,12 +190,14 @@ function switchModeToNormal() {
   cursorTop.style.opacity = 1;
   cursorTop.style.display = "block";
   cursorTop.style.backgroundColor = "black";
+  setBlockCursor(true);
 }
 
 function switchModeToInsert() {
   mode = "insert";
   updateModeIndicator(mode);
   cursorTop.style.opacity = 0;
+  setBlockCursor(false);
 }
 
 function switchModeToWait() {
@@ -428,6 +446,11 @@ function eventHandler(e) {
     e.preventDefault();
     if (mode == "visualLine" || mode == "visual") {
       sendKeyEvent("right");
+    } else if (mode == "insert") {
+      // Vim moves the cursor one position left when leaving insert mode,
+      // since the normal-mode block cursor sits on a character rather than
+      // between characters.
+      sendKeyEvent("left");
     }
     switchModeToNormal();
     return;
