@@ -126,6 +126,23 @@ function halfPageUp() {
     movePage("up")
 }
 
+// Center the viewport on the current cursor position (Vim's zz).
+function centerOnCursor() {
+    const scroller = document.querySelector(".kix-appview-editor")
+    const cursor = document.querySelector(".kix-cursor")
+    if (!scroller || !cursor) return
+    const cursorRect = cursor.getBoundingClientRect()
+    const scrollerRect = scroller.getBoundingClientRect()
+    const cursorCenter = cursorRect.top + cursorRect.height / 2
+    const viewportCenter = scrollerRect.top + scroller.clientHeight / 2
+    scroller.scrollBy({ top: cursorCenter - viewportCenter, behavior: "smooth" })
+}
+
+function handleZInput(key) {
+    if (key == "z") centerOnCursor()
+    mode = "normal"
+}
+
 function switchModeToVisual() {
     mode = 'visual'
     updateModeIndicator(mode)
@@ -425,6 +442,9 @@ function eventHandler(e) {
             case "multipleMotion":
                 handleMultipleMotion(e.key)
                 break
+            case "waitForZ":
+                handleZInput(e.key)
+                break
         }
     }
 }
@@ -516,6 +536,9 @@ function handleKeyEventNormal(key) {
         case "O":
             addLineTop()
             break
+        case "z":
+            mode = "waitForZ"
+            return
         case "u":
             clickMenu(menuItems.undo)
             break
